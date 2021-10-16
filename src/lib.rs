@@ -351,6 +351,23 @@ impl OctreeFile {
         Ok(node)
     }
 
+    pub fn read_all_nodes(&mut self) -> Result<Vec<Node>, OctreeFileError> {
+        self.node_file.seek(SeekFrom::Start(0))?;
+        let length = self.node_file.metadata()?.len();
+
+        if length != size_of::<Node>() as u64 * self.info.n_nodes {
+            return Err(OctreeFileError::IOError(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "count of node differs in nodes file",
+            )));
+        }
+
+        let mut nodes: Vec<Node> = vec![Node::new(); self.info.n_nodes as usize];
+        self.node_file
+            .read_exact(unsafe { any_slice_as_u8_slice_mut(nodes.as_mut_slice()) })?;
+        Ok(nodes)
+    }
+
     pub fn read_children_nodes(&mut self, node: &Node) -> Result<Vec<Node>, OctreeFileError> {
         let children_address = node.children_base;
         self.node_file.seek(SeekFrom::Start(
@@ -378,6 +395,24 @@ impl OctreeFile {
             .read_exact(unsafe { any_as_u8_slice_mut(&mut data) })?;
 
         Ok(data)
+    }
+
+    pub fn read_all_voxel_data(&mut self) -> Result<Vec<VoxelData>, OctreeFileError> {
+        self.data_file.seek(SeekFrom::Start(0))?;
+        let length = self.data_file.metadata()?.len();
+
+        if length != size_of::<VoxelData>() as u64 * self.info.n_data {
+            return Err(OctreeFileError::IOError(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "count of voxel data differs in data file",
+            )));
+        }
+
+        let mut voxel_data: Vec<VoxelData> =
+            vec![VoxelData::new(0, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]); self.info.n_data as usize];
+        self.data_file
+            .read_exact(unsafe { any_slice_as_u8_slice_mut(voxel_data.as_mut_slice()) })?;
+        Ok(voxel_data)
     }
 }
 
@@ -563,5 +598,21 @@ END
                 [0.105000392, -0.0576205514, -0.992801487]
             )
         )
+    }
+
+    #[test]
+    fn read_all_nodes() {
+        let mut octree_file =
+            OctreeFile::open("./testdata/shroom164_1.octree").expect("file should exist");
+        let nodes = octree_file.read_all_nodes().unwrap();
+        assert_eq!(nodes.len(), octree_file.info.n_nodes as usize);
+    }
+
+    #[test]
+    fn read_all_voxel_data() {
+        let mut octree_file =
+            OctreeFile::open("./testdata/shroom164_1.octree").expect("file should exist");
+        let voxel_data = octree_file.read_all_voxel_data().unwrap();
+        assert_eq!(voxel_data.len(), octree_file.info.n_data as usize);
     }
 }

@@ -126,6 +126,8 @@ pub enum OctreeInfoError {
     ParseIntValue(#[from] ParseIntError),
     #[error("Missing field: {0}")]
     MissingField(String),
+    #[error("Missing value for: {0}")]
+    MissingValue(String),
     #[error("Error while parsing: {0}")]
     Parse(String),
 }
@@ -153,25 +155,23 @@ impl FromStr for OctreeInfo {
         let mut key_values = BTreeMap::new();
 
         for l in lines {
-            let mut words = l.split_whitespace();
-            let key = words
-                .next()
-                .ok_or_else(|| OErr::Parse("Unexpected line ending".to_owned()))?;
-            match key {
-                k @ ("gridlength" | "n_nodes" | "n_data") => {
-                    let v = words
-                        .next()
-                        .ok_or_else(|| OErr::Parse(format!("missing parameter for {}", k)))?
-                        .parse::<u64>()?;
-                    key_values.insert(k, v);
+            let split_line = l.split_whitespace().collect::<Vec<_>>();
+            match split_line.as_slice() {
+                [k @ ("gridlength" | "n_nodes" | "n_data"), v] => {
+                    let v = v.parse::<u64>()?;
+                    key_values.insert(k.clone(), v);
                 }
-                "END" => break,
-                k => return Err(OErr::UnrecognizedKeyword(k.to_string())),
+                ["END"] => break,
+                [k @ ("gridlength" | "n_nodes" | "n_data")] => {
+                    return Err(OErr::MissingValue(k.to_string()))
+                }
+                [k, ..] => return Err(OErr::UnrecognizedKeyword(k.to_string())),
+                [] => return Err(OErr::Parse("Unexpected line ending".to_owned())),
             };
         }
 
         let gridlength = key_values
-            .remove("gridlength")
+            .remove(&"gridlength")
             .ok_or_else(|| OErr::MissingField("gridlength".to_owned()))?
             .try_into()
             .map_err(|_| OErr::GridLengthError)?;
@@ -180,10 +180,10 @@ impl FromStr for OctreeInfo {
             return Err(OErr::GridLengthError);
         }
         let n_nodes = key_values
-            .remove("n_nodes")
+            .remove(&"n_nodes")
             .ok_or_else(|| OErr::MissingField("n_nodes".to_owned()))?;
         let n_data = key_values
-            .remove("n_data")
+            .remove(&"n_data")
             .ok_or_else(|| OErr::MissingField("n_data".to_owned()))?;
 
         Ok(OctreeInfo {
@@ -353,9 +353,7 @@ END"
         .parse();
         assert_eq!(
             octree_info,
-            Err(OctreeInfoError::Parse(
-                "missing parameter for gridlength".into()
-            ))
+            Err(OctreeInfoError::MissingValue("gridlength".into()))
         );
 
         let octree_info: Result<OctreeInfo, OctreeInfoError> = "#octreeheader 1

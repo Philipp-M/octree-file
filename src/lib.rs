@@ -31,6 +31,7 @@ pub struct Node {
 }
 
 impl Node {
+    #[inline(always)]
     pub fn new() -> Self {
         Node {
             data: 0,
@@ -39,28 +40,34 @@ impl Node {
         }
     }
 
+    #[inline(always)]
     pub fn has_child(&self, idx: usize) -> bool {
         self.children_offsets[idx] != NO_CHILD
     }
 
+    #[inline(always)]
     pub fn is_leaf(&self) -> bool {
         self.children_offsets == LEAF
     }
 
+    #[inline(always)]
     pub fn has_data(&self) -> bool {
         self.data != NO_DATA
     }
 
+    #[inline(always)]
     pub fn is_null(&self) -> bool {
         self.is_leaf() && !self.has_data()
     }
 
+    #[inline(always)]
     pub fn child_count(&self) -> usize {
         self.children_offsets
             .iter()
             .fold(0, |acc, x| acc + if *x == NO_CHILD { 0 } else { 1 })
     }
 
+    #[inline(always)]
     pub fn child_pos(&self, idx: usize) -> Option<u64> {
         match self.children_offsets[idx] {
             NO_CHILD => None,
@@ -77,6 +84,7 @@ pub struct VoxelData {
 }
 
 impl VoxelData {
+    #[inline(always)]
     pub fn new(morton: u64, normal: [f32; 3], color: [f32; 3]) -> Self {
         VoxelData {
             morton,
@@ -240,6 +248,7 @@ impl OctreeFile {
         })
     }
 
+    #[inline(always)]
     pub fn read_root_node(&mut self) -> Result<Node, OctreeFileError> {
         // TODO compare with nom parsing, specifically bench the two solutions, also think of
         // endianess
@@ -251,6 +260,7 @@ impl OctreeFile {
         Ok(node)
     }
 
+    #[inline(always)]
     pub fn read_all_nodes(&mut self) -> Result<Vec<Node>, OctreeFileError> {
         self.node_file.seek(SeekFrom::Start(0))?;
         let length = self.node_file.metadata()?.len();
@@ -268,6 +278,7 @@ impl OctreeFile {
         Ok(nodes)
     }
 
+    #[inline(always)]
     pub fn read_children_nodes(&mut self, node: &Node) -> Result<Vec<Node>, OctreeFileError> {
         let children_address = node.children_base;
         self.node_file.seek(SeekFrom::Start(
@@ -281,6 +292,7 @@ impl OctreeFile {
         Ok(children_nodes)
     }
 
+    #[inline(always)]
     pub fn read_voxel_data(&mut self, node: &Node) -> Result<VoxelData, OctreeFileError> {
         if node.data == NO_DATA {
             return Err(OctreeFileError::IOError(io::Error::new(
@@ -297,6 +309,7 @@ impl OctreeFile {
         Ok(data)
     }
 
+    #[inline(always)]
     pub fn read_all_voxel_data(&mut self) -> Result<Vec<VoxelData>, OctreeFileError> {
         self.data_file.seek(SeekFrom::Start(0))?;
         let length = self.data_file.metadata()?.len();

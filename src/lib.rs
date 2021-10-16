@@ -214,24 +214,16 @@ pub enum OctreeFileError {
 
 impl OctreeFile {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<OctreeFile, OctreeFileError> {
-        // let path = Path
-        let base_filename = path.as_ref().file_stem().ok_or_else(|| {
-            OctreeFileError::IOError(io::Error::new(
-                io::ErrorKind::NotFound,
-                "The path doesn't contain a file",
-            ))
-        })?;
-        let path = path.as_ref().parent().ok_or_else(|| {
-            OctreeFileError::IOError(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "The path is the root instead of a file",
-            ))
+        use io::ErrorKind as Kind;
+        let path = path.as_ref();
+        let base_filename = path
+            .file_stem()
+            .ok_or_else(|| io::Error::new(Kind::NotFound, "The path doesn't contain a file"))?;
+        let path = path.parent().ok_or_else(|| {
+            io::Error::new(Kind::InvalidData, "The path is the root instead of a file")
         })?;
         let base_filename = base_filename.to_str().ok_or_else(|| {
-            OctreeFileError::IOError(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "filename contains invalid unicode",
-            ))
+            io::Error::new(Kind::InvalidData, "filename contains invalid unicode")
         })?;
         let filename = path.join(format!("{}.octree", base_filename));
         let node_filename = path.join(format!("{}.octreenodes", base_filename));

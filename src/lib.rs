@@ -76,7 +76,7 @@ impl Node {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VoxelData {
     pub morton: u64,
     pub color: [f32; 3],
@@ -105,12 +105,6 @@ impl Ord for VoxelData {
 impl PartialOrd for VoxelData {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for VoxelData {
-    fn eq(&self, other: &Self) -> bool {
-        self.morton == other.morton
     }
 }
 
@@ -507,12 +501,12 @@ END
         let data = octree_file.read_voxel_data(&node).unwrap();
 
         assert_eq!(
-            data,
             VoxelData::new(
                 60725,
+                [-0.39972392, -0.084368065, -0.91274464],
                 [0.0, 0.0, 0.0],
-                [0.105000392, -0.0576205514, -0.992801487]
-            )
+            ),
+            data,
         )
     }
 

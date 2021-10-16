@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
-use std::error;
-use std::fmt;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -10,6 +9,7 @@ use std::num::ParseIntError;
 use std::path::Path;
 use std::slice::from_raw_parts_mut;
 use std::str::FromStr;
+use thiserror::Error;
 
 pub const NO_CHILD: u8 = 0xff;
 pub const NO_DATA: u64 = 0;
@@ -114,132 +114,77 @@ pub struct OctreeInfo {
     pub n_data: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum OctreeInfoError {
+    #[error("Unsupported version, only version 1 is supported currently")]
     UnsupportedVersion,
+    #[error("Unrecognized keyword: {0}")]
     UnrecognizedKeyword(String),
+    #[error("Error while parsing gridlength, only gridlengths of power 2 are supported")]
     GridLengthError,
-    NodeCountError(ParseIntError),
-    DataCountError(ParseIntError),
+    #[error("Error while parsing value of gridlength, n_nodes or n_data: {0}")]
+    ParseIntValue(#[from] ParseIntError),
+    #[error("Missing field: {0}")]
     MissingField(String),
+    #[error("Error while parsing: {0}")]
     Parse(String),
-}
-
-impl fmt::Display for OctreeInfoError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            OctreeInfoError::UnsupportedVersion => {
-                write!(f, "Only version 1 is supported currently")
-            }
-            OctreeInfoError::UnrecognizedKeyword(ref k) => write!(f, "Unrecognized keyword: {}", k),
-            OctreeInfoError::GridLengthError => {
-                write!(f, "Only gridlengths of power 2 are supported")
-            }
-            OctreeInfoError::NodeCountError(ref e) | OctreeInfoError::DataCountError(ref e) => {
-                e.fmt(f)
-            }
-            OctreeInfoError::Parse(ref e) => write!(f, "Parse: {}", e),
-            OctreeInfoError::MissingField(ref e) => write!(f, "Missing Field: {}", e),
-        }
-    }
-}
-
-impl error::Error for OctreeInfoError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        // not implemented
-        None
-    }
 }
 
 impl FromStr for OctreeInfo {
     type Err = OctreeInfoError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut gridlength: Option<u32> = None;
-        let mut n_nodes: Option<u64> = None;
-        let mut n_data: Option<u64> = None;
+        use OctreeInfoError as OErr;
 
         let mut lines = s.lines();
         // first line has to be the '#octreeheader' with the version
-        let version = match lines.next() {
-            Some(s) => {
-                let mut header = s.split_whitespace();
-                match header.next() {
-                    Some("#octreeheader") => match header.next() {
-                        Some("1") => 1,
-                        _ => return Err(OctreeInfoError::UnsupportedVersion),
-                    },
-                    _ => return Err(OctreeInfoError::Parse("Invalid header".to_owned())),
-                }
-            }
-            _ => return Err(OctreeInfoError::Parse("Invalid header".to_owned())),
-        };
+        let header = lines
+            .next()
+            .ok_or_else(|| OErr::Parse("Invalid header".to_owned()))?
+            .split_whitespace()
+            .collect::<Vec<_>>();
+
+        let version = match header.as_slice() {
+            ["#octreeheader", "1"] => Ok(1),
+            ["#octreeheader", _] => Err(OErr::UnsupportedVersion),
+            _ => Err(OErr::Parse("Invalid header".into())),
+        }?;
+
+        let mut key_values = BTreeMap::new();
+
         for l in lines {
             let mut words = l.split_whitespace();
-            match words.next() {
-                Some(key) => {
-                    match key {
-                        "gridlength" => {
-                            gridlength = match words.next() {
-                                Some(l) => match l.parse::<u32>() {
-                                    Ok(l) => {
-                                        if (l & (l - 1)) == 0 {
-                                            Some(l)
-                                        } else {
-                                            return Err(OctreeInfoError::GridLengthError);
-                                        }
-                                    }
-                                    Err(_) => return Err(OctreeInfoError::GridLengthError),
-                                },
-                                _ => return Err(OctreeInfoError::GridLengthError),
-                            }
-                        }
-                        "n_nodes" => {
-                            n_nodes = match words.next() {
-                                Some(l) => match l.parse::<u64>() {
-                                    Ok(c) => Some(c),
-                                    Err(e) => return Err(OctreeInfoError::NodeCountError(e)),
-                                },
-                                _ => {
-                                    return Err(OctreeInfoError::Parse(
-                                        "missing parameter for n_nodes".to_owned(),
-                                    ))
-                                }
-                            }
-                        }
-                        "n_data" => {
-                            n_data = match words.next() {
-                                Some(l) => match l.parse::<u64>() {
-                                    Ok(c) => Some(c),
-                                    Err(e) => return Err(OctreeInfoError::DataCountError(e)),
-                                },
-                                _ => {
-                                    return Err(OctreeInfoError::Parse(
-                                        "missing parameter for n_data".to_owned(),
-                                    ))
-                                }
-                            }
-                        }
-                        "END" => break,
-                        k => return Err(OctreeInfoError::UnrecognizedKeyword(k.to_string())),
-                    };
+            let key = words
+                .next()
+                .ok_or_else(|| OErr::Parse("Unexpected line ending".to_owned()))?;
+            match key {
+                k @ ("gridlength" | "n_nodes" | "n_data") => {
+                    let v = words
+                        .next()
+                        .ok_or_else(|| OErr::Parse(format!("missing parameter for {}", k)))?
+                        .parse::<u64>()?;
+                    key_values.insert(k, v);
                 }
-                None => return Err(OctreeInfoError::Parse("Unexpected line ending".to_owned())),
-            }
+                "END" => break,
+                k => return Err(OErr::UnrecognizedKeyword(k.to_string())),
+            };
         }
 
-        let gridlength = match gridlength {
-            Some(g) => g,
-            None => return Err(OctreeInfoError::MissingField("gridlength".to_owned())),
-        };
-        let n_nodes = match n_nodes {
-            Some(n) => n,
-            None => return Err(OctreeInfoError::MissingField("n_nodes".to_owned())),
-        };
-        let n_data = match n_data {
-            Some(d) => d,
-            None => return Err(OctreeInfoError::MissingField("n_data".to_owned())),
-        };
+        let gridlength = key_values
+            .remove("gridlength")
+            .ok_or_else(|| OErr::MissingField("gridlength".to_owned()))?
+            .try_into()
+            .map_err(|_| OErr::GridLengthError)?;
+        // check if power of 2
+        if !((gridlength != 0) && ((gridlength & (gridlength - 1)) == 0)) {
+            return Err(OErr::GridLengthError);
+        }
+        let n_nodes = key_values
+            .remove("n_nodes")
+            .ok_or_else(|| OErr::MissingField("n_nodes".to_owned()))?;
+        let n_data = key_values
+            .remove("n_data")
+            .ok_or_else(|| OErr::MissingField("n_data".to_owned()))?;
 
         Ok(OctreeInfo {
             version,
@@ -259,72 +204,35 @@ pub struct OctreeFile {
     data_file: File,
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum OctreeFileError {
-    OctreeHeaderError(OctreeInfoError),
-    IOError(io::Error),
-}
-
-impl fmt::Display for OctreeFileError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            OctreeFileError::OctreeHeaderError(ref s) => {
-                write!(f, "Error while reading octree header: {}", s)
-            }
-            OctreeFileError::IOError(ref e) => write!(f, "Error while reading file: {}", e),
-        }
-    }
-}
-
-impl error::Error for OctreeFileError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        // not implemented
-        None
-    }
-}
-
-impl From<OctreeInfoError> for OctreeFileError {
-    fn from(err: OctreeInfoError) -> OctreeFileError {
-        OctreeFileError::OctreeHeaderError(err)
-    }
-}
-
-impl From<std::io::Error> for OctreeFileError {
-    fn from(err: std::io::Error) -> OctreeFileError {
-        OctreeFileError::IOError(err)
-    }
+    #[error("Error while reading octree header: {0}")]
+    OctreeHeaderError(#[from] OctreeInfoError),
+    #[error("Error while reading file: {0}")]
+    IOError(#[from] io::Error),
 }
 
 impl OctreeFile {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<OctreeFile, OctreeFileError> {
         // let path = Path
-        let base_filename = match path.as_ref().file_stem() {
-            Some(p) => p,
-            None => {
-                return Err(OctreeFileError::IOError(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "The path doesn't contain a file",
-                )))
-            }
-        };
-        let path = match path.as_ref().parent() {
-            Some(p) => p,
-            None => {
-                return Err(OctreeFileError::IOError(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "The path is the root instead of a file",
-                )))
-            }
-        };
-        let base_filename = match base_filename.to_str() {
-            Some(s) => s,
-            None => {
-                return Err(OctreeFileError::IOError(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "filename contains invalid unicode",
-                )))
-            }
-        };
+        let base_filename = path.as_ref().file_stem().ok_or_else(|| {
+            OctreeFileError::IOError(io::Error::new(
+                io::ErrorKind::NotFound,
+                "The path doesn't contain a file",
+            ))
+        })?;
+        let path = path.as_ref().parent().ok_or_else(|| {
+            OctreeFileError::IOError(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "The path is the root instead of a file",
+            ))
+        })?;
+        let base_filename = base_filename.to_str().ok_or_else(|| {
+            OctreeFileError::IOError(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "filename contains invalid unicode",
+            ))
+        })?;
         let filename = path.join(format!("{}.octree", base_filename));
         let node_filename = path.join(format!("{}.octreenodes", base_filename));
         let data_filename = path.join(format!("{}.octreedata", base_filename));
@@ -443,7 +351,12 @@ n_nodes 5542
 n_data 4206
 END"
         .parse();
-        assert_eq!(octree_info, Err(OctreeInfoError::GridLengthError));
+        assert_eq!(
+            octree_info,
+            Err(OctreeInfoError::Parse(
+                "missing parameter for gridlength".into()
+            ))
+        );
 
         let octree_info: Result<OctreeInfo, OctreeInfoError> = "#octreeheader 1
 gridlength 64

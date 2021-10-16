@@ -11,9 +11,9 @@ use std::path::Path;
 use std::slice::from_raw_parts_mut;
 use std::str::FromStr;
 
-const NO_CHILD: i8 = -1;
-const NO_DATA: u64 = 0;
-const LEAF: [i8; 8] = [NO_CHILD; 8];
+pub const NO_CHILD: u8 = 0xff;
+pub const NO_DATA: u64 = 0;
+pub const LEAF: [u8; 8] = [NO_CHILD; 8];
 
 unsafe fn any_as_u8_slice_mut<T: Sized>(p: &mut T) -> &mut [u8] {
     from_raw_parts_mut((p as *mut T) as *mut u8, size_of::<T>())
@@ -27,7 +27,7 @@ unsafe fn any_slice_as_u8_slice_mut<T: Sized>(p: &mut [T]) -> &mut [u8] {
 pub struct Node {
     pub data: u64,
     pub children_base: u64,
-    pub children_offsets: [i8; 8],
+    pub children_offsets: [u8; 8],
 }
 
 impl Node {
@@ -252,7 +252,7 @@ impl FromStr for OctreeInfo {
 
 pub struct OctreeFile {
     #[allow(dead_code)]
-    info: OctreeInfo,
+    pub info: OctreeInfo,
     // TODO do some smart buffering, BufReader is not well suited due to the vast number of seeks
     // (which can often be random)
     node_file: File,

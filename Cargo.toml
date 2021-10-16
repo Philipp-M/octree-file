@@ -1,5 +1,5 @@
 [package]
 name = "octree-file"
 version = "0.1.0"
-authors = ["Philipp Mildenberger <philipp.mildenberger@student.uibk.ac.at>"]
-edition = "2018"
+authors = ["Philipp Mildenberger <philipp@mildenberger.me>"]
+edition = "2021"
